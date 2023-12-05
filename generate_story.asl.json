@@ -1,0 +1,104 @@
+{
+	"Comment": "A description of my state machine",
+	"StartAt": "Create Story Item",
+	"States": {
+	  "Create Story Item": {
+		"Type": "Task",
+		"Resource": "arn:aws:states:::dynamodb:putItem",
+		"Parameters": {
+		  "TableName": "${StoryTable}",
+		  "Item": {
+			"StoryId": {
+			  "S.$": "$$.Execution.Name"
+			},
+			"Status": {
+			  "S": "INPROGRESS"
+			},
+			"Prompt": {
+				"S.$": "$.originalPrompt"
+			}
+		  }
+		},
+		"Next": "Bedrock InvokeModel",
+		"ResultPath": null
+	  },
+	  "Bedrock InvokeModel": {
+		"Type": "Task",
+		"Resource": "arn:aws:states:::bedrock:invokeModel",
+		"Parameters": {
+		  "ModelId": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2",
+		  "Body": {
+			"prompt.$": "$.llmPrompt",
+			"max_tokens_to_sample": 1000
+		  }
+		},
+		"Next": "StartSpeechSynthesisTask",
+		"ResultPath": "$.bedrockResult"
+	  },
+	  "StartSpeechSynthesisTask": {
+		"Type": "Task",
+		"Parameters": {
+		  "OutputFormat": "mp3",
+		  "Engine": "long-form",
+		  "OutputS3BucketName": "${StoryAudioBucket}",
+		  "OutputS3KeyPrefix": "audio/file",
+		  "Text.$": "$.bedrockResult.Body.completion",
+		  "VoiceId": "Ruth"
+		},
+		"Resource": "arn:aws:states:::aws-sdk:polly:startSpeechSynthesisTask",
+		"ResultPath": "$.pollyResult",
+		"Next": "Wait 2 Seconds"
+	  },
+	  "Wait 2 Seconds": {
+		"Type": "Wait",
+		"Seconds": 2,
+		"Next": "GetSpeechSynthesisTask"
+	  },
+	  "GetSpeechSynthesisTask": {
+		"Type": "Task",
+		"Next": "JobComplete?",
+		"Parameters": {
+		  "TaskId.$": "$.pollyResult.SynthesisTask.TaskId"
+		},
+		"Resource": "arn:aws:states:::aws-sdk:polly:getSpeechSynthesisTask",
+		"ResultPath": "$.pollyResult"
+	  },
+	  "JobComplete?": {
+		"Type": "Choice",
+		"Choices": [
+		  {
+			"Variable": "$.pollyResult.SynthesisTask.TaskStatus",
+			"StringEquals": "completed",
+			"Next": "Update Story Item"
+		  }
+		],
+		"Default": "Wait 2 Seconds"
+	  },
+	  "Update Story Item": {
+		"Type": "Task",
+		"Resource": "arn:aws:states:::dynamodb:putItem",
+		"Parameters": {
+		  "TableName": "${StoryTable}",
+		  "Item": {
+			"StoryId": {
+			  "S.$": "$$.Execution.Name"
+			},
+			"Status": {
+			  "S": "COMPLETE"
+			},
+			"Prompt": {
+				"S.$": "$.originalPrompt"
+			},
+			"StoryText": {
+				"S.$": "$.bedrockResult.Body.completion"
+			},
+			"StoryAudioUrl": {
+				"S.$": "$.pollyResult.SynthesisTask.OutputUri"
+			}
+		  }
+		},
+		"ResultPath": null,
+		"End": true
+	  }
+	}
+  }

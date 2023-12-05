@@ -1,0 +1,165 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: AI Storytime app. Built using Bedrock, Polly, Step Functions, API Gateway, Lambda, S3 and Cloudfront.
+
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 256
+    Runtime: python3.11
+    Handler: app.lambda_handler
+
+Resources:
+  GenerateStoryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/generateStory/
+      Environment:
+        Variables:
+          STORY_STATE_MACHINE_ARN: !Ref StoryStateMachine
+      Policies:
+        - StepFunctionsExecutionPolicy:
+            StateMachineName: !GetAtt StoryStateMachine.Name
+      Events:
+        CreateStory:
+          Type: Api
+          Properties:
+            Path: /story
+            Method: post
+
+  GetStoryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/getStory/
+      Environment:
+        Variables:
+          STORY_TABLE_NAME: !Ref StoryTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref StoryTable
+      Events:
+        GetStory:
+          Type: Api
+          Properties:
+            Path: /story/{storyId}
+            Method: get
+
+  StoryStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionSubstitutions:
+        StoryTable: !Ref StoryTable
+        StoryAudioBucket: !Ref StoryAudioBucket
+      Policies:
+        - Statement:
+            - Effect: "Allow"
+              Action:
+                - "bedrock:InvokeModel"
+              Resource:
+                - "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-instant-v1"
+                - "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2"
+                - "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2:1"
+        - Statement:
+            - Effect: "Allow"
+              Action:
+                - "polly:StartSpeechSynthesisTask"
+                - "polly:GetSpeechSynthesisTask"
+              Resource: "*"
+        - DynamoDBWritePolicy:
+            TableName: !Ref StoryTable
+        - S3WritePolicy:
+            BucketName: !Ref StoryAudioBucket
+      DefinitionUri: generate_story.asl.json
+
+  StoryAudioBucket:
+    Type: AWS::S3::Bucket
+
+  StoryAudioBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref StoryAudioBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action: s3:GetObject
+            Resource: !Sub arn:aws:s3:::${StoryAudioBucket}/*
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
+
+  StoryWebsiteBucket:
+    Type: AWS::S3::Bucket
+
+  StoryWebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref StoryWebsiteBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action: s3:GetObject
+            Resource: !Sub arn:aws:s3:::${StoryWebsiteBucket}/*
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
+
+  StoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: StoryId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: StoryId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt StoryAudioBucket.DomainName
+            Id: StoryAudioBucket
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub origin-access-identity/cloudfront/${CloudFrontOAI}
+          - DomainName: !GetAtt StoryWebsiteBucket.DomainName
+            Id: StoryWebsiteBucket
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub origin-access-identity/cloudfront/${CloudFrontOAI}
+          - DomainName: !Sub "${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com"
+            Id: ApiGateway
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+        Enabled: true
+        DefaultCacheBehavior:
+          TargetOriginId: StoryWebsiteBucket
+          ViewerProtocolPolicy: redirect-to-https
+          ForwardedValues:
+            QueryString: true
+          AllowedMethods: [HEAD, GET]
+        CacheBehaviors:
+          - PathPattern: /audio/*
+            TargetOriginId: StoryAudioBucket
+            AllowedMethods: [HEAD, GET]
+            ForwardedValues:
+              QueryString: false
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /Prod/*
+            TargetOriginId: ApiGateway
+            AllowedMethods: [DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT]
+            DefaultTTL: 0
+            MinTTL: 0
+            MaxTTL: 0
+            ForwardedValues:
+              QueryString: true
+            ViewerProtocolPolicy: redirect-to-https
+  CloudFrontOAI:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: "Storytime OAI"
+
+Outputs:
+  CloudFrontDomain:
+    Value: !GetAtt CloudFrontDistribution.DomainName
+  StoryWebsiteBucket:
+    Value: !GetAtt StoryWebsiteBucket.DomainName

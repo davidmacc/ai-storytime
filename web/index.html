@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Storytime</title>
+    <style>
+        body {
+            padding: 20px;
+            font-family: monospace;
+            font-size: 16px;
+        }
+
+        h1 {
+            font-family: monospace;
+            font-size: 3em;
+        }
+
+        label {
+            display: block;
+            padding-bottom: 5px;
+        }
+
+        textarea {
+            display: block;
+            margin-bottom: 20px;
+            padding: 10px;
+            font-size: 16px;
+        }
+
+        button {
+            background-color: greenyellow;
+            border: none;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            color: black;
+            display: block;
+            font-size: 16px;
+            border-radius: 8px;
+            font-family: monospace;
+        }
+
+        #btnShare {
+            display: none;
+            padding: 7px 15px;
+        }
+
+        #divStoryResult {
+            font-style: italic;
+            margin: 10px 0px 10px 0px;
+            padding: 10px;
+            background-color: #faffec;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .loader {
+            width: 48px;
+            height: 48px;
+            border: 5px solid #FFF;
+            border-bottom-color: greenyellow;
+            border-radius: 50%;
+            display: inline-block;
+            box-sizing: border-box;
+            animation: rotation 1s linear infinite;
+            display: block;
+            display: none;
+        }
+
+        @keyframes rotation {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <h1>AI Storytime</h1>
+    <label for="topic">What do you want your story to be about?</label>
+    <textarea id="txtStoryTopic" style="width: 500px; height: 100px;"
+        placeholder="Type your topic here e.g. 'A 9 year old boy and his dog, Alfie.'"></textarea>
+    <button id="btnGenerateStory" onclick="generateStory()">Generate Story</button>
+    <span id="loader" class="loader"></span>
+    <audio controls id="audioPlayer" autoplay style="display: none; margin-top: 15px;"></audio>
+    <div id="divStoryResult"> ... </div>
+    <button id="btnShare">Share this story</button>
+</body>
+<script src="index.js"></script>
+
+</html>
